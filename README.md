@@ -6,6 +6,8 @@ M2R-ParallelQuicksort repository for nots of the whole group, improved experimen
 
 ## 3. 09/10/25 [ JMV ] Visualization and Exploratory Data Analysis
 
+Solution for challanger exercise: https://github.com/wojciechloboda/SMPE-lab/blob/main/challanger/challanger.pdf
+
 Improvement of 3 plots from the presentation:
 
 Original plot: 
