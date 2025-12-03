@@ -1,0 +1,165 @@
+---
+title: "Analysis of the risk of failure of the O-rings on the Challenger shuttle"
+author: "Arnaud Legrand"
+date: "28 juin 2018"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+On January 27, 1986, the day before the takeoff of the shuttle
+*Challenger*, had a three-hour teleconference was held between Morton
+Thiokol (the manufacturer of one of the engines) and NASA. The
+discussion focused on the consequences of the temperature at take-off of
+31°F (just below 0°C) for the success of the flight and in particular on
+the performance of the O-rings used in the engines. Indeed, no test had
+been performed at this temperature.
+
+The following study takes up some of the analyses carried out that night
+with the objective of assessing the potential influence of the
+temperature and pressure to which the O-rings are subjected on their
+probability of malfunction. Our starting point is the results of the
+experiments carried out by NASA engineers during the six years preceding
+the launch of the shuttle Challenger.
+
+# Loading the data
+
+We start by loading this data:
+
+```{r}
+data = read.csv("shuttle.csv",header=T)
+data
+```
+
+The data set shows us the date of each test, the number of O-rings
+(there are 6 on the main launcher), the temperature (in Fahrenheit) and
+pressure (in psi), and finally the number of identified malfunctions.
+
+# Graphical inspection
+
+Flights without incidents do not provide any information on the
+influence of temperature or pressure on malfunction. We thus focus on
+the experiments in which at least one O-ring was defective.
+
+```{r}
+data = data[data$Malfunction>0,]
+data
+```
+
+We have a high temperature variability but the pressure is almost always
+200, which should simplify the analysis.
+
+How does the frequency of failure vary with temperature?
+
+```{r}
+plot(data=data, Malfunction/Count ~ Temperature, ylim=c(0,1))
+```
+
+At first glance, the dependence does not look very important, but let's
+try to estimate the impact of temperature $t$ on the probability of
+O-ring malfunction.
+
+# Estimation of the temperature influence
+
+Suppose that each of the six O-rings is damaged with the same
+probability and independently of the others and that this probability
+depends only on the temperature. If $p(t)$ is this probability, the
+number $D$ of malfunctioning O-rings during a flight at temperature $t$
+follows a binomial law with parameters $n=6$ and $p=p(t)$. To link
+$p(t)$ to $t$, we will therefore perform a logistic regression.
+
+```{r}
+logistic_reg = glm(data=data, Malfunction/Count ~ Temperature, weights=Count, 
+                   family=binomial(link='logit'))
+summary(logistic_reg)
+```
+
+The most likely estimator of the temperature parameter is 0.001416 and
+the standard error of this estimator is 0.049, in other words we cannot
+distinguish any particular impact and we must take our estimates with
+caution.
+
+# Estimation of the probability of O-ring malfunction
+
+The expected temperature on the take-off day is 31°F. Let's try to
+estimate the probability of O-ring malfunction at this temperature from
+the model we just built:
+
+```{r}
+# shuttle=shuttle[shuttle$r!=0,] 
+tempv = seq(from=30, to=90, by = .5)
+rmv <- predict(logistic_reg,list(Temperature=tempv),type="response")
+plot(tempv,rmv,type="l",ylim=c(0,1))
+points(data=data, Malfunction/Count ~ Temperature)
+```
+
+As expected from the initial data, the temperature has no significant
+impact on the probability of failure of the O-rings. It will be about
+0.2, as in the tests where we had a failure of at least one joint. Let's
+get back to the initial dataset to estimate the probability of failure:
+
+```{r}
+data_full = read.csv("shuttle.csv",header=T)
+sum(data_full$Malfunction)/sum(data_full$Count)
+```
+
+This probability is thus about $p=0.065$. Knowing that there is a
+primary and a secondary O-ring on each of the three parts of the
+launcher, the probability of failure of both joints of a launcher is
+$p^2 \approx 0.00425$. The probability of failure of any one of the
+launchers is $1-(1-p^2)^3 \approx 1.2%$. That would really be bad
+luck.... Everything is under control, so the takeoff can happen tomorrow
+as planned.
+
+But the next day, the Challenger shuttle exploded and took away with her
+the seven crew members. The public was shocked and in the subsequent
+investigation, the reliability of the O-rings was questioned. Beyond the
+internal communication problems of NASA, which have a lot to do with
+this fiasco, the previous analysis includes (at least) a small
+problem.... Can you find it? You are free to modify this analysis and to
+look at this dataset from all angles in order to to explain what's
+wrong.
+
+## Finding error
+
+in the provided data from tests, the range of temperatures is small, all
+of them vary between 60-70, based on this data we cannot reason about
+what will happen in the temperatures around 30. To show this we can
+visualize confidence intervals for out logistic regression
+
+```{r}
+# Create a sequence of Temperature values for plotting
+newdata <- data.frame(Temperature = seq(0,
+                                        max(data$Temperature),
+                                        length.out = 100))
+
+# Predict on the link (logit) scale with standard errors
+pred <- predict(logistic_reg, newdata, type = "link", se.fit = TRUE)
+
+# Compute 95% CI on the link scale
+newdata$fit <- pred$fit
+newdata$lower <- pred$fit - 1.96 * pred$se.fit
+newdata$upper <- pred$fit + 1.96 * pred$se.fit
+
+# Transform back to probability scale
+newdata$fit_prob <- plogis(newdata$fit)
+newdata$lower_prob <- plogis(newdata$lower)
+newdata$upper_prob <- plogis(newdata$upper)
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(newdata, aes(x = Temperature, y = fit_prob)) +
+  geom_line(color = "blue") +                        # Predicted probability line
+  geom_ribbon(aes(ymin = lower_prob, ymax = upper_prob), alpha = 0.2) + # 95% CI
+  geom_point(data = data, aes(x = Temperature, y = Malfunction/Count), color = "red") + # observed proportions
+  labs(y = "Probability of Malfunction",
+       x = "Temperature") +
+  theme_minimal()
+```
+
+Model was to simple and took into account only, temperature not pressure
+etc, we should do the same based on pressure, temperature, malfucntion
+types
