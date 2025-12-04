@@ -1,14 +1,14 @@
 # SMPE-lab
 
-### Improved experiments and plots for M2R-ParallelQuicksort
+## Improved experiments and plots for M2R-ParallelQuicksort
 
 M2R-ParallelQuicksort repository for nots of the whole group, improved experiments and plots: https://github.com/viniciuslazzari/M2R-ParallelQuicksort
 
-### Challenger exercise
+## Challenger exercise
 
 Solution for challenger exercise: https://github.com/wojciechloboda/SMPE-lab/blob/main/challanger/challanger.pdf
 
-### Improvement of plots
+## Improvement of plots
 
 Improvement of 3 plots from the presentation:
 
