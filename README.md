@@ -1,12 +1,14 @@
 # SMPE-lab
 
-## 2. 02/10/25 [ AL ] Clearly defining the experiment and having the right tools to analyze it
+### Improved experiments and plots for M2R-ParallelQuicksort
 
 M2R-ParallelQuicksort repository for nots of the whole group, improved experiments and plots: https://github.com/viniciuslazzari/M2R-ParallelQuicksort
 
-## 3. 09/10/25 [ JMV ] Visualization and Exploratory Data Analysis
+### Challenger exercise
 
-Solution for challanger exercise: https://github.com/wojciechloboda/SMPE-lab/blob/main/challanger/challanger.pdf
+Solution for challenger exercise: https://github.com/wojciechloboda/SMPE-lab/blob/main/challanger/challanger.pdf
+
+### Improvement of plots
 
 Improvement of 3 plots from the presentation:
 
