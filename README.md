@@ -59,5 +59,9 @@ Improved:
 
 
 
+## Peer evaluated exercise
+
+solution for the peer evaluated exercise: https://github.com/wojciechloboda/SMPE-lab/tree/main/latency-capacity
+
 
 
