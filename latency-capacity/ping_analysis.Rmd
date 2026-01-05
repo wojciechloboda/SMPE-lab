@@ -1,0 +1,466 @@
+---
+title: "ping_analysis"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# **Subject 4: Latency and capacity estimation for a network connection from asymmetric measurements**
+
+```{r}
+
+install.packages("patchwork")
+install.packages("quantreg")
+```
+
+The original logs for this analysis were downloaded from these links:
+
+<http://mescal.imag.fr/membres/arnaud.legrand/teaching/2014/RICM4_EP_ping/liglab2.log.gz>
+
+<http://mescal.imag.fr/membres/arnaud.legrand/teaching/2014/RICM4_EP_ping/stackoverflow.log.gz>
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+```
+
+## Introduction
+
+In this analysis, we will examine two datasets containing logs from pinging two different addresses. A simple and commonly used model for network performance assumes that the time T required to send a message depends primarily on its size S (in bytes) and two characteristics of the connection: the latency L (in seconds) and the capacity C(in bytes per second). We aim to estimate C and L for the network connections using linear regression.
+
+## Initial inspection
+
+After an initial visual inspection, I noticed that not all log lines represent successful pings. Since failed pings are not relevant to our analysis, we begin by removing entries that do not conform to the expected structure.
+
+```{r}
+
+lines <- readLines("liglab2.log", warn = FALSE)
+paste("Original number of lines : ", length(lines))
+```
+
+```{r}
+lines <- lines[grepl("bytes from .* time=", lines)]
+paste("Number of lines with successful pings: ", length(lines))
+```
+
+Next, the remaining log lines are parsed to extract the information required for analysis and converted into a data frame with appropriate data types. Timestamps are stored as POSIXct, while ping latency (in milliseconds) and payload size are converted to numeric values. As before, any lines that do not represent successful pings are excluded.
+
+```{r}
+
+parse_ping_log <- function(file) {
+  lines <- readLines(file, warn = FALSE)
+  
+  lines <- lines[grepl("bytes from .* time=", lines)]
+  
+  timestamps <- as.numeric(sub("^\\[(\\d+\\.\\d+)\\].*", "\\1", lines))
+  times <- as.POSIXct(timestamps, origin="1970-01-01", tz="UTC")
+  size_bytes <- as.numeric(sub("^.*\\] ([0-9]+) bytes.*$", "\\1", lines))
+  ping_ms <- as.numeric(sub("^.*time=([0-9.]+) ms.*$", "\\1", lines))
+  
+  data.frame(
+    times = times,
+    size_bytes = size_bytes,
+    ping_ms = ping_ms,
+    stringsAsFactors = FALSE
+  )
+}
+
+
+```
+
+```{r}
+
+data <- parse_ping_log("liglab2.log")
+str(data)
+
+```
+
+Now let's try to analyse the data visually by plotting it:
+
+```{r}
+
+ggplot(data, aes(x = times, y = ping_ms)) +
+  geom_point(alpha = 0.3, size = 0.8) + 
+  labs(
+    title = "Ping over Time",
+    x = "Time",
+    y = "Ping (ms)"
+  ) +
+  theme_minimal()
+```
+
+> Several outliers are clearly visible, with the majority of ping times falling below 100 ms. To avoid influencing further results, values above this threshold are removed. The presence of these outliers may be attributed to various factors, most likely rapid and significant to network network conditions.
+
+```{r}
+data <- data[data$ping_ms <= 100, ]
+
+ggplot(data, aes(x = times, y = ping_ms)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  labs(
+    title = "Ping over Time within the treshold",
+    x = "Time",
+    y = "Ping (ms)"
+  ) +
+  theme_minimal()
+```
+
+## Evolution of transmission times in different time scales, and time ranges
+
+In order to determine if the variations in transmission time can be explained only by the size of the payload, let’s visualize the aggregated means of both transmission times and size of payload for specific timescales. I.e., let’s visualize means for 20 min, 10 min, 1 min, etc.
+
+```{r}
+
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+
+plot_means_for_timerange <- function(data, timerange) {
+  data_min <- data %>%
+    mutate(time_min = as.POSIXct(cut(times, timerange))) %>%
+    group_by(time_min) %>%
+    summarise(avg_ping = mean(ping_ms, na.rm = TRUE),
+              avg_size = mean(size_bytes, na.rm = TRUE))
+  
+  p1 <- ggplot(data_min, aes(x = time_min, y = avg_ping)) +
+    geom_line(color = "blue") +
+    geom_point(alpha = 0.3, size = 1) +
+    labs(title = "Average Ping per Time Range",
+         x = "Time",
+         y = "Ping (ms)") +
+    theme_minimal()
+  
+  
+  p2 <- ggplot(data_min, aes(x = time_min, y = avg_size)) +
+    geom_line(color = "blue") +
+    geom_point(alpha = 0.3, size = 1) +
+    labs(title = "Average Size per Time Range",
+         x = "Time",
+         y = "Size") +
+    theme_minimal()  
+  
+  p1 + p2
+}
+```
+
+```{r}
+
+plot_means_for_timerange(data, "1 min")
+plot_means_for_timerange(data, "10 min")
+plot_means_for_timerange(data, "20 min")
+
+```
+
+Based on the plots, we can see that transmission time cannot be determined only by the payload size, as we see that spikes on the graphs do not visually seem to correlate with each other. More parameters for the model, such as time of day, could give better results, but since the dataset is limited to one specific day and no additional parameters are available, we cannot extend the model further.
+
+Now, let’s try to plot the transmission times for specific shorter time spans to see if it also suggests that transmission time is not determined solely by payload size.
+
+```{r}
+
+plot_for_timerange <- function(data, begin, end) {
+
+  # Filter by time-of-day
+  time_str <- format(data$times, "%H:%M")
+  data_range <- data[time_str >= begin & time_str < end, ]
+
+  p_ping <- ggplot(data_range, aes(x = times, y = ping_ms)) +
+    geom_point(alpha = 0.3, size = 0.8) +
+    labs(
+      title = paste("Ping over Time from", begin, "to", end),
+      x = "Time",
+      y = "Ping (ms)"
+    ) +
+    theme_minimal()
+
+  p_size <- ggplot(data_range, aes(x = times, y = size_bytes)) +
+    geom_point(alpha = 0.3, size = 0.8) +
+    labs(
+      title = paste("Size over Time from", begin, "to", end),
+      x = "Time",
+      y = "Size (bytes)"
+    ) +
+    theme_minimal()
+
+  p_ping + p_size
+}
+
+```
+
+```{r}
+
+plot_for_timerange(data, "15:00", "16:00")
+plot_for_timerange(data, "15:00", "15:10")
+plot_for_timerange(data, "15:00", "15:01")
+```
+
+We see that even for shorter time spans, the distribution of payload sizes seems to be uniform, but the transmission times vary significantly between specific moments in time, with clear visual spikes in certain models. This also confirms that the model in which transmission time depends solely on payload size might be too simplified.
+
+## Transmission Time over the size of payload
+
+```{r}
+
+ggplot(data, aes(x = size_bytes, y = ping_ms)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  labs(
+    title = "TT over msg size",
+    x = "msg size",
+    y = "Ping (ms)"
+  ) +
+  theme_minimal()
+```
+
+We see that there is a clear difference between the distribution of transmission times for payloads larger than a specific point around 1500 bytes and for smaller payloads. After investigation, it is clear that this is caused by payload fragmentation. On a standard Ethernet network, the MTU (Maximum Transmission Unit) is 1500 bytes, and if any packet is larger, it will be fragmented, causing longer transmission times. The ping log shows the payload size without headers. The specific size of the ping payload that will divide the classes can be calculated as: 1500 - 20 (IP) - 8 (ICMP) = 1472 bytes. We split the dataset into two classes: one with payloads above 1472 - data_fragmented, and one with payloads below 1472 - data_unfragmented.
+
+```{r}
+
+threshold <- 1472
+
+data_unfragmented <- data[data$size_bytes <= threshold, ]
+data_fragmented <- data[data$size_bytes > threshold, ]
+
+str(data_fragmented)
+str(data_unfragmented)
+```
+
+```{r}
+
+ggplot(data_unfragmented, aes(x = size_bytes, y = ping_ms)) +
+  geom_point(alpha = 0.3, size = 0.8) + 
+  labs(
+    title = "TT over msg size unfragmented",
+    x = "msg size",
+    y = "Ping (ms)"
+  ) +
+  theme_minimal()
+
+
+ggplot(data_fragmented, aes(x = size_bytes, y = ping_ms)) +
+  geom_point(alpha = 0.3, size = 0.8) + 
+  labs(
+    title = "TT over msg size fragmented",
+    x = "msg size",
+    y = "Ping (ms)"
+  ) +
+  theme_minimal()
+
+```
+
+After inspecting both plots, we see that now within one class, the distribution of transmission times seems to be more consistent.
+
+## Linear Regression
+
+For both classes lets try to fit linear regression and calculate L and C:
+
+```{r}
+
+summarize_regression <- function(data) {
+  reg <- lm(data=data, ping_ms~size_bytes)
+  summary(reg)  
+  
+  coef_size <- coef(reg)["size_bytes"]
+  inv_coef <- 1 / coef_size 
+
+  
+  print(summary(reg)) 
+  print(paste("C: ", inv_coef))
+  print(paste("L: ", coef(reg)["(Intercept)"]))
+  
+  ggplot(data, aes(x = size_bytes, y = ping_ms)) +
+    geom_point(alpha = 0.5) +
+    geom_smooth(method = "lm", se = TRUE, color = "blue", fill = "lightblue", alpha = 0.3) +
+    labs(
+      title = "Ping vs Payload Size with Regression Line",
+      x = "Payload Size (bytes)",
+      y = "Ping (ms)"
+    ) +
+    theme_minimal()
+}
+
+```
+
+```{r}
+summarize_regression(data_unfragmented)
+```
+
+```{r}
+summarize_regression(data_fragmented)
+
+```
+
+In both cases, from the regression summary we can see that the model does not fit the data well. By analyzing the residuals, we observe that for both classes the model mostly underpredicts: the residual quantiles are around -2 for the unfragmented class and around -7 for the fragmented class. The maximum overprediction reaches approximately 90, suggesting the presence of outliers that are not explained by payload size.
+
+Looking at the R-squared values, we see they are 0.006 and 0.005 — extremely small for both classes. This indicates that payload size explains almost none of the variation in transmission times.
+
+The variability not related to payload size is so strong and asymmetric that a simple linear regression does not fit properly, and the estimated parameter values are likely unreliable. This analysis can be extended further.
+
+## Different aproches to regression
+
+As the variability is so strong and asymmetric that the normal linear regression does not fir properly. We could consider only the smallest times for each payload size and perform linear regression only on the subset of dataset.
+
+```{r}
+
+data_unfragmented_min <- data_unfragmented %>%
+  group_by(size_bytes) %>%            
+  slice_min(times, n = 1) %>%
+  ungroup()
+
+
+data_fragmented_min <- data_fragmented %>%
+  group_by(size_bytes) %>%            
+  slice_min(times, n = 1) %>%
+  ungroup()
+
+```
+
+```{r}
+ggplot(data_unfragmented_min, aes(x = size_bytes, y = ping_ms)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  labs(
+    title = "min TT over msg size unfragmented",
+    x = "msg size",
+    y = "Ping (ms)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(data_fragmented_min, aes(x = size_bytes, y = ping_ms)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  labs(
+    title = "min TT over msg size fragmented",
+    x = "msg size",
+    y = "Ping (ms)"
+  ) +
+  theme_minimal()
+```
+
+Lets try to fit linear regression here:
+
+```{r}
+
+summarize_regression(data_fragmented_min)
+
+```
+
+```{r}
+summarize_regression(data_unfragmented_min)
+```
+
+After analyzing the regression on this subset, we can see that the fit is improved in this case. For both classes, the residuals are smaller, with quantiles around -1.5 for unfragmented and -4.9 for fragmented data. The model still tends to underpredict, but the performance is better overall. The R-squared values have also improved for both classes—especially for unfragmented, where it is around 0.002, compared to approximately 0.0004 for fragmented. Although these values are still quite small, the increase in variance explained suggests that in this case, payload size accounts for more of the variance in transmission times.
+
+## Stackoverflow dataset
+
+```{r}
+data <- parse_ping_log("stackoverflow.log")
+str(data)
+```
+
+```{r}
+ggplot(data, aes(x = times, y = ping_ms)) +
+  geom_point(alpha = 0.3, size = 0.8) + 
+  labs(
+    title = "Ping over Time",
+    x = "Time",
+    y = "Ping (ms)"
+  ) +
+  theme_minimal()
+```
+
+By visually analyzing the data, we can see that the transmission times are larger in this case. No obvious outliers are visible.
+
+```{r}
+
+plot_means_for_timerange(data, "1 min")
+plot_means_for_timerange(data, "5 min")
+plot_means_for_timerange(data, "10 min")
+```
+
+Visually, it appears that payload size has a stronger correlation with transmission time than before. The line plots also show more similar shapes.
+
+```{r}
+ggplot(data, aes(x = size_bytes, y = ping_ms)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  labs(
+    title = "TT over msg size",
+    x = "msg size",
+    y = "Ping (ms)"
+  ) +
+  theme_minimal()
+```
+
+Here, we also see that the dataset should be split into two classes, which appears to be caused by the same factor: fragmented and unfragmented packets.
+
+```{r}
+threshold <- 1472
+
+data_unfragmented <- data[data$size_bytes <= threshold, ]
+data_fragmented <- data[data$size_bytes > threshold, ]
+
+str(data_fragmented)
+str(data_unfragmented)
+```
+
+```{r}
+ggplot(data_unfragmented, aes(x = size_bytes, y = ping_ms)) +
+  geom_point(alpha = 0.3, size = 0.8) + 
+  labs(
+    title = "TT over msg size unfragmented",
+    x = "msg size",
+    y = "Ping (ms)"
+  ) +
+  theme_minimal()
+
+
+ggplot(data_fragmented, aes(x = size_bytes, y = ping_ms)) +
+  geom_point(alpha = 0.3, size = 0.8) + 
+  labs(
+    title = "TT over msg size fragmented",
+    x = "msg size",
+    y = "Ping (ms)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+summarize_regression(data_unfragmented)
+```
+
+```{r}
+summarize_regression(data_fragmented)
+```
+
+Residual errors for both classes indicate underprediction in both cases. The R² values are very low, especially for unfragmented packets, which, as in the previous analysis, suggests that variability in transmission times is barely explained by packet size. For fragmented packets, the coefficient for size in bytes is negative, implying that larger packets appear to correspond to shorter transmission times. This counterintuitive result indicates an even poorer fit for this class, which is reasonable given that, for larger sites like StackOverflow, transmission times are influenced by many factors and network conditions, leading to higher variability.
+
+Lets try to also do regression on a subset where only the lowest transmission time for eahc paylaod size is used.
+
+```{r}
+
+data_unfragmented_min <- data_unfragmented %>%
+  group_by(size_bytes) %>%            
+  slice_min(times, n = 1) %>%
+  ungroup()
+
+
+data_fragmented_min <- data_fragmented %>%
+  group_by(size_bytes) %>%            
+  slice_min(times, n = 1) %>%
+  ungroup()
+
+```
+
+```{r}
+
+summarize_regression(data_fragmented_min)
+
+```
+
+```{r}
+
+summarize_regression(data_unfragmented_min)
+```
+
+Performing regression on this subset improved the fit slightly, as suggested by the residual values. The R-squared is also slightly higher, but the improvement is minimal. Overall, we can conclude that, especially for this dataset, the model fit remains poor.
+
+## Conclusions
+
+The analysis suggests that the chosen model, in which transmission time depends solely on packet size, latency and capacity, is too simple and does not correspond closely to the values observed in the datasets. This may be due to the high variance in the data, which arises from the specifics of network measurements, transmission times are heavily influenced by current network conditions and infrastructure, both of which can change rapidly and significantly, having a major impact on the final transmission time.
