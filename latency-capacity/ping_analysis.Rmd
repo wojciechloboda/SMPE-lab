@@ -9,8 +9,8 @@ output:
 
 ```{r}
 
-install.packages("patchwork")
-install.packages("quantreg")
+# install.packages("patchwork")
+# install.packages("quantreg")
 ```
 
 The original logs for this analysis were downloaded from these links:
@@ -23,6 +23,8 @@ The original logs for this analysis were downloaded from these links:
 library(ggplot2)
 library(dplyr)
 library(patchwork)
+library(quantreg)
+
 ```
 
 ## Introduction
@@ -249,11 +251,11 @@ After inspecting both plots, we see that now within one class, the distribution 
 
 ## Linear Regression
 
-For both classes lets try to fit linear regression and calculate L and C:
+For both classes lets try to fit linear regression and calculate L and C, for vizualization of regression line we plot only Y axis to max value 5, to make it more readable.
 
 ```{r}
 
-summarize_regression <- function(data) {
+summarize_regression <- function(data, maxY) {
   reg <- lm(data=data, ping_ms~size_bytes)
   summary(reg)  
   
@@ -273,17 +275,18 @@ summarize_regression <- function(data) {
       x = "Payload Size (bytes)",
       y = "Ping (ms)"
     ) +
+    ylim(0, maxY) +
     theme_minimal()
 }
 
 ```
 
 ```{r}
-summarize_regression(data_unfragmented)
+summarize_regression(data_unfragmented, 5)
 ```
 
 ```{r}
-summarize_regression(data_fragmented)
+summarize_regression(data_fragmented, 5)
 
 ```
 
@@ -293,7 +296,7 @@ Looking at the R-squared values, we see they are 0.006 and 0.005 — extremely s
 
 The variability not related to payload size is so strong and asymmetric that a simple linear regression does not fit properly, and the estimated parameter values are likely unreliable. This analysis can be extended further.
 
-## Different aproches to regression
+## Different approaches to regression
 
 As the variability is so strong and asymmetric that the normal linear regression does not fir properly. We could consider only the smallest times for each payload size and perform linear regression only on the subset of dataset.
 
@@ -338,15 +341,80 @@ Lets try to fit linear regression here:
 
 ```{r}
 
-summarize_regression(data_fragmented_min)
+summarize_regression(data_fragmented_min, 5)
 
 ```
 
 ```{r}
-summarize_regression(data_unfragmented_min)
+summarize_regression(data_unfragmented_min, 5)
 ```
 
-After analyzing the regression on this subset, we can see that the fit is improved in this case. For both classes, the residuals are smaller, with quantiles around -1.5 for unfragmented and -4.9 for fragmented data. The model still tends to underpredict, but the performance is better overall. The R-squared values have also improved for both classes—especially for unfragmented, where it is around 0.002, compared to approximately 0.0004 for fragmented. Although these values are still quite small, the increase in variance explained suggests that in this case, payload size accounts for more of the variance in transmission times.
+After analyzing the regression on this subset, we can see that the fit is improved in this case. For both classes, the residuals are smaller, with quantiles around -1.5 for unfragmented and -4.9 for fragmented data. The model still tends to underpredict, but the performance is better overall. The R-squared values have also improved for both classes—especially for unfragmented, where it is around 0.002, compared to approximately 0.0004 for fragmented. Although these values are still quite small, the increase in variance explained suggests that in this case, payload size accounts for more of the variance in transmission times
+
+## Quantile Regression
+
+Quantile regression is a regression method that works even when the errors are skewed and not normally distributed, as is the case here. Previously, using traditional linear regression, we tended to underestimate the response variable. Quantile regression is used to estimate the conditional quantiles of Y given X.
+
+For a specific quantile tau, it fits a line that predicts that quantile of the response. For example, for tau=0.5(the median), over- and under-predictions are weighted equally — making it a robust version of linear regression.
+
+For other quantiles, the weighting shifts: the 0.25 quantile gives more weight to over-predictions, while the 0.75 quantile gives more weight to under-predictions.
+
+Since our previous models tended to underpredict, we might see a better fit for lower quantiles, for example, tau=0.25.
+
+```{r}
+
+
+summarize_qregression <- function(data, tau = 0.5, maxY) {
+  reg <- rq(ping_ms ~ size_bytes, data = data, tau = tau)
+  
+  coef_size <- coef(reg)["size_bytes"]
+  inv_coef <- 1 / coef_size
+  
+  print(summary(reg))
+  cat("C (1/coef_size):", inv_coef, "\n")
+  cat("L (intercept):", coef(reg)["(Intercept)"], "\n")
+  
+  residuals <- data$ping_ms - predict(reg, newdata = data)
+  
+  res_quantiles <- quantile(residuals, probs = c(0, 0.25, 0.5, 0.75, 1))
+  cat("Residual quantiles (min, 25%, median, 75%, max):\n")
+  print(res_quantiles)  
+  
+  new_data <- data.frame(size_bytes = seq(min(data$size_bytes),
+                                          max(data$size_bytes), length.out = 100))
+  new_data$ping_pred <- predict(reg, newdata = new_data)
+  
+  ggplot(data, aes(x = size_bytes, y = ping_ms)) +
+    geom_point(alpha = 0.5) +
+    geom_line(data = new_data, aes(x = size_bytes, y = ping_pred),
+              color = "red", size = 1) +
+    labs(
+      title = paste("Ping vs Payload Size with Quantile Regression (tau =", tau, ")"),
+      x = "Payload Size (bytes)",
+      y = "Ping (ms)"
+    ) +
+    ylim(0, maxY) +
+    theme_minimal()
+}
+
+```
+
+```{r}
+
+summarize_qregression(data_unfragmented, 0.25, 5)
+
+```
+
+```{r}
+
+summarize_qregression(data_unfragmented, 0.50, 5)
+```
+
+```{r}
+summarize_qregression(data_unfragmented, 0.75, 5)
+```
+
+It seems that we have the best fit for tau=0.5. Based on the comparison of the residual quantiles, this choice provides a better fit for the data overall.
 
 ## Stackoverflow dataset
 
@@ -422,11 +490,11 @@ ggplot(data_fragmented, aes(x = size_bytes, y = ping_ms)) +
 ```
 
 ```{r}
-summarize_regression(data_unfragmented)
+summarize_regression(data_unfragmented, 200)
 ```
 
 ```{r}
-summarize_regression(data_fragmented)
+summarize_regression(data_fragmented, 200)
 ```
 
 Residual errors for both classes indicate underprediction in both cases. The R² values are very low, especially for unfragmented packets, which, as in the previous analysis, suggests that variability in transmission times is barely explained by packet size. For fragmented packets, the coefficient for size in bytes is negative, implying that larger packets appear to correspond to shorter transmission times. This counterintuitive result indicates an even poorer fit for this class, which is reasonable given that, for larger sites like StackOverflow, transmission times are influenced by many factors and network conditions, leading to higher variability.
@@ -450,17 +518,17 @@ data_fragmented_min <- data_fragmented %>%
 
 ```{r}
 
-summarize_regression(data_fragmented_min)
+summarize_regression(data_fragmented_min, 200)
 
 ```
 
 ```{r}
 
-summarize_regression(data_unfragmented_min)
+summarize_regression(data_unfragmented_min, 200)
 ```
 
 Performing regression on this subset improved the fit slightly, as suggested by the residual values. The R-squared is also slightly higher, but the improvement is minimal. Overall, we can conclude that, especially for this dataset, the model fit remains poor.
 
 ## Conclusions
 
-The analysis suggests that the chosen model, in which transmission time depends solely on packet size, latency and capacity, is too simple and does not correspond closely to the values observed in the datasets. This may be due to the high variance in the data, which arises from the specifics of network measurements, transmission times are heavily influenced by current network conditions and infrastructure, both of which can change rapidly and significantly, having a major impact on the final transmission time.
+The analysis suggests that the chosen model, in which transmission time depends solely on packet size, latency and capacity, is too simple and does not correspond closely to the values observed in the datasets. This may be due to the high variance in the data, which arises from the specifics of network measurements, transmission times are heavily influenced by current network conditions and infrastructure, both of which can change rapidly and significantly, having a major impact on the final transmission time. The error for our model does not seem to ahve normal ditribution thats why quanitile regression seem to solve to heva eay better fit.
