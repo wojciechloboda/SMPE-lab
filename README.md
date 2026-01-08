@@ -12,11 +12,14 @@ Solution for challenger exercise: https://github.com/wojciechloboda/SMPE-lab/blo
 
 solution: https://github.com/wojciechloboda/SMPE-lab/blob/main/plots/plots.md
 
+## Fitting Linear Model to quicksort data
+
+solution: https://github.com/wojciechloboda/SMPE-lab/tree/main/parallel-sort-linear
+
 ## Peer evaluated exercise
 
 my solution for the peer evaluated exercise: https://github.com/wojciechloboda/SMPE-lab/tree/main/latency-capacity
 
 review of other topic: https://github.com/wojciechloboda/SMPE-lab/blob/main/review/review.md
-
 
 
