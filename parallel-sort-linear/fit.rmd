@@ -1,0 +1,217 @@
+---
+title: "parallel-linear"
+output:
+  pdf_document: default
+  html_document: default
+date: "2025-10-02"
+---
+
+# Fitting linear model for the quicksort data
+
+```{r}
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(nlstools)
+library(purrr)
+library(broom)
+```
+
+```{r}
+data <- read.csv("measurments.csv")
+head(data)
+
+data_long <- pivot_longer(data, cols = c("Seq", "Par", "Libc"),
+                          names_to = "Method", values_to = "Time")
+head(data_long)
+```
+
+## Visualization means of time for the sizes, on logarithmic scale
+
+```{r}
+
+ggplot(data_long, aes(x = Size, y = Time, color = Method)) +
+  stat_summary(
+    aes(group = Method),
+    fun.data = mean_cl_normal,
+    geom = "ribbon",
+    fill = "grey70",
+    alpha = 0.7,
+    color = NA
+  ) +
+  # Mean points
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    size = 1
+  ) +
+  scale_x_log10(
+    breaks = c(1, 10, 100, 1000, 10000, 100000, 1000000)
+  ) +
+  scale_color_discrete(
+    name = "Algorithm",
+    labels = c("Sequential", "Parallel", "Libc")
+  ) +
+  labs(
+    title = "Performance by Method (Mean ± 95% CI)",
+    x = "Size (log scale)",
+    y = "Time (seconds)"
+  ) +
+  theme_minimal()
+```
+
+## Fitting linear model y \~ a + b(nlogn) for every algorithm
+
+```{r}
+library(dplyr)
+
+
+data_mean <- data_long %>%
+  group_by(Method, Size) %>%
+  summarise(MeanTime = mean(Time), .groups = "drop") %>%
+  mutate(nlogn = Size * log(Size))
+
+
+models <- data_mean %>%
+  group_by(Method) %>%
+  group_map(~ lm(MeanTime ~ nlogn, data = .x)) %>%
+  setNames(unique(data_mean$Method))
+```
+
+## Summary of Libc regression
+
+```{r}
+summary(models[["Libc"]])
+```
+
+## Summary of Parallel regression
+
+```{r}
+summary(models[["Par"]])
+```
+
+## Summary of Sequential regression
+
+```{r}
+summary(models[["Seq"]])
+```
+
+```{r}
+
+coefs <- imap_dfr(
+  models,
+  ~ data.frame(
+      Method = .y,
+      Intercept = coef(.x)[1],
+      Slope = coef(.x)[2]
+    )
+)
+
+data_fit <- data_mean %>%
+  left_join(coefs, by = "Method") %>%
+  mutate(Fitted = Intercept + Slope * nlogn)
+```
+
+## Visualization of regression, qqplots, residuals
+
+```{r}
+
+library(ggplot2)
+library(dplyr)
+library(scales)
+
+ggplot(data_mean, aes(x = Size, y = MeanTime, color = Method)) +
+  geom_point(linewidth = 1) +  
+  geom_line(data = data_fit, aes(x = Size, y = Fitted, color = Method), size = 1) + 
+  scale_color_discrete(
+    name = "Algorithm",
+    labels = c("Sequential", "Parallel", "Libc")
+  ) +
+  facet_wrap(~Method) + 
+  scale_x_log10(labels = comma) +  
+  labs(
+    title = "Scalability by Algorithm",
+    x = "Input size (log scale)",
+    y = "Execution Time (s)",
+    color = "Algorithm"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    strip.background = element_rect(fill = "lightgray", color = NA),
+    strip.text = element_text(face = "bold")
+  )
+
+
+```
+
+```{r}
+
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+data_resid <- data_mean %>%
+  group_by(Method) %>%
+  group_modify(~ {
+    mod <- lm(MeanTime ~ nlogn, data = .x)
+    .x$residuals <- resid(mod)
+    .x
+  })
+```
+
+```{r}
+
+ggplot(data_resid, aes(sample = residuals)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  facet_wrap(~Method) +
+  labs(
+    title = "QQ Plot of Residuals per Algorithm (n log n fit)",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_bw(base_size = 12)
+
+```
+
+```{r}
+
+
+library(dplyr)
+library(ggplot2)
+
+data_resid <- data_mean %>%
+  group_by(Method) %>%
+  group_modify(~ {
+    mod <- lm(MeanTime ~ nlogn, data = .x)
+    .x <- .x %>%
+      mutate(
+        Fitted = predict(mod, newdata = .x),
+        Residuals = residuals(mod)
+      )
+    .x
+  })
+```
+
+```{r}
+
+
+ggplot(data_resid, aes(x = Fitted, y = Residuals, color = Method)) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(~Method) +
+  labs(
+    title = "Residuals vs Fitted (n log n linear fit)",
+    x = "Fitted Values",
+    y = "Residuals"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+## Evaluation of the fit
+
+Based on the summary and visualization of regression curves, residuals, and QQ plots for residuals, the chosen linear models seem to fit the data correctly for the Sequential and Libc implementations of quicksort. Residual values for those implementations seem low. The residual standard error is also low, suggesting low variance. The R² for those implementations is high, which means that the variance of the model explains almost all of the total variance. QQ plots for residuals suggest that the error in this case has a normal distribution, and residuals vs fitted plots show that residual values are mostly consistent and fall around zero.
+
+The fit is not as good for the parallel implementation, which is visible in the plots showing the regression curve. The residual median and quantiles seem similar to those of the other implementations, but an R² value around 0.6 shows that the total variance is not properly explained by the model. QQ plots and visualization of residuals also suggest that the model is not a good fit, as the error does not seem to follow a normal distribution. A different model might be a better fit in this case.
