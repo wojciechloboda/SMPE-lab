@@ -132,9 +132,9 @@ visualize confidence intervals for out logistic regression
 
 ```{r}
 # Create a sequence of Temperature values for plotting
-newdata <- data.frame(Temperature = seq(-20,
+newdata <- data.frame(Temperature = seq(14,
                                         max(data$Temperature),
-                                        length.out = 100))
+                                        length.out = 84))
 
 # Predict on the link (logit) scale with standard errors
 pred <- predict(logistic_reg, newdata, type = "link", se.fit = TRUE)
