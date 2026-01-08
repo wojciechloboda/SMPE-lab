@@ -2,9 +2,11 @@
 title: "Analysis of the risk of failure of the O-rings on the Challenger shuttle"
 author: "Arnaud Legrand"
 date: "28 juin 2018"
-output: html_document
-editor_options: 
-  markdown: 
+output:
+  pdf_document: default
+  html_document: default
+editor_options:
+  markdown:
     wrap: 72
 ---
 
@@ -130,7 +132,7 @@ visualize confidence intervals for out logistic regression
 
 ```{r}
 # Create a sequence of Temperature values for plotting
-newdata <- data.frame(Temperature = seq(0,
+newdata <- data.frame(Temperature = seq(-20,
                                         max(data$Temperature),
                                         length.out = 100))
 
