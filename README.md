@@ -61,7 +61,9 @@ Improved:
 
 ## Peer evaluated exercise
 
-solution for the peer evaluated exercise: https://github.com/wojciechloboda/SMPE-lab/tree/main/latency-capacity
+my solution for the peer evaluated exercise: https://github.com/wojciechloboda/SMPE-lab/tree/main/latency-capacity
+
+review of other topic: https://github.com/wojciechloboda/SMPE-lab/blob/main/review/review.md
 
 
 
