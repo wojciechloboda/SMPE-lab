@@ -1,5 +1,6 @@
 
 Improvement of 3 plots from the presentation:
+(All the dashed lines can also be continuous)
 
 Original plot: 
 
@@ -45,3 +46,4 @@ Original plot:
 Improved: 
 
 ![](./../docs/img/killed_improved.png)
+
